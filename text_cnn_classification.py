@@ -51,7 +51,8 @@ def text_cnn(filter_size, kernel_size, pool_size):
     model.add(layers.Conv1D(filter_size, kernel_size))
     model.add(layers.Activation('relu'))
     if pool_size > 0:
-        model.add(layers.MaxPooling1D((pool_size)))
+        model.add(layers.AveragePooling1D((pool_size)))
+        #model.add(layers.GlobalAveragePooling1D())
     return model
 
 class TextCnnClass(tf.keras.Model):
@@ -98,7 +99,7 @@ class TextCnnClass(tf.keras.Model):
 
         self.output_layer = layers.Dense(1, activation='sigmoid')
     
-    def call(self, x, training):
+    def call(self, x, training=None):
         x = self.embedding(x)
         for cnn in self.cnn_array:
             x = cnn(x)
@@ -112,6 +113,10 @@ class TextCnnClass(tf.keras.Model):
         outputs = self.output_layer(x)
         return outputs
 
+    def model(self, shape):
+        x = tf.keras.Input(shape=shape)
+        return tf.keras.Model(inputs=x, outputs=self.call(x))
+
 
 def train(x_train,
           y_train,
@@ -123,9 +128,11 @@ def train(x_train,
           batch_size,
           validation_data,
           test_data=None,
-          test_labels=None):
+          test_labels=None,
+          checkpoint_path=None):
 
-    model = TextCnnClass(vocab_size, embed_size, conv_layers, fc_layers, 0.1)
+    model = TextCnnClass(vocab_size, embed_size, conv_layers, fc_layers, 0.5)
+    model.model(shape=x_train[0].shape).summary()
     
     model.compile(optimizer='adam',
                   loss='binary_crossentropy',
@@ -137,12 +144,25 @@ def train(x_train,
                         batch_size=batch_size,
                         validation_data=validation_data,
                         verbose=1)
-    
-    model.summary()
+
+    if checkpoint_path is not None:
+        checkpoint = tf.train.Checkpoint(model=model)
+        save_path = checkpoint.save(checkpoint_path)                        
 
     if test_data is not None and test_labels is not None:
         results = model.evaluate(test_data, test_labels, verbose=2)
         print(results)
+
+
+def predict(data, vocab_size, embed_size, conv_layers, fc_layers, checkpoint_path):
+    model = TextCnnClass(vocab_size, embed_size, conv_layers, fc_layers, 0.5)
+
+    model.model(shape=data[0].shape).summary()
+    checkpoint = tf.train.Checkpoint(model=model)
+    save_path = checkpoint.save(checkpoint_path)
+    checkpoint.restore(save_path)
+
+    print(model.predict(data).T)
 
 
 if __name__ =='__main__':
@@ -166,13 +186,17 @@ if __name__ =='__main__':
 
     fc_layers = [1024, 1024]
 
+    checkpoint_path = 'data/TCC/'
+
     train(train_data, train_labels, 
-          vocab_size, 1024,
+          vocab_size, 69,
           conv_layers,
           fc_layers,
           20, 512, 
           (x_val, y_val),
-          test_data, test_labels)
+          test_data, test_labels,
+          checkpoint_path)
     
+    predict(train_data, vocab_size, 69, conv_layers, fc_layers, checkpoint_path)
     
     

@@ -37,16 +37,21 @@ class SimpleTextClass(tf.keras.Model):
 
         self.embedding = layers.Embedding(vocab_size, embed_size)   #(batch, sequence, embedding)
         self.pool = layers.GlobalAveragePooling1D()     #sequeceの次元方向に平均値をもとめて、固定長のベクトルを返す
+        self.dropout = layers.Dropout(0.9)
         self.layer = layers.Dense(embed_size, activation='relu')
         self.output_layer = layers.Dense(1, activation='sigmoid')
     
     def call(self, x, training=None):
-        embed = self.embedding(x)
-        pooled = self.pool(embed)
-        x1 = self.layer(pooled)
-        outputs = self.output_layer(x1)
+        x = self.embedding(x)
+        x = self.pool(x)
+        x = self.dropout(x, training=training)
+        x = self.layer(x)
+        outputs = self.output_layer(x)
         return outputs
 
+    def model(self, shape):
+        x = tf.keras.Input(shape=shape)
+        return tf.keras.Model(inputs=x, outputs=self.call(x))
 
 def train(x_train,
           y_train,
@@ -56,13 +61,16 @@ def train(x_train,
           batch_size,
           validation_data,
           test_data=None,
-          test_labels=None):
+          test_labels=None,
+          checkpoint_path=None):
 
     model = SimpleTextClass(vocab_size, embed_size)
     
     model.compile(optimizer='adam',
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
+
+    model.model(shape=x_train[0].shape).summary()
 
     history = model.fit(x_train,
                         y_train,
@@ -71,9 +79,25 @@ def train(x_train,
                         validation_data=validation_data,
                         verbose=1)
 
+    if checkpoint_path is not None:
+        checkpoint = tf.train.Checkpoint(model=model)
+        save_path = checkpoint.save(checkpoint_path)
+    
+
     if test_data is not None and test_labels is not None:
         results = model.evaluate(test_data, test_labels, verbose=2)
         print(results)
+
+def predict(data, vocab_size, embed_size, checkpoint_path):
+    model = SimpleTextClass(vocab_size, embed_size)
+
+    model.model(shape=data[0].shape).summary()
+    checkpoint = tf.train.Checkpoint(model=model)
+    save_path = checkpoint.save(checkpoint_path)
+    checkpoint.restore(save_path)
+
+    print(model.predict(data).T)
+
 
 if __name__ =='__main__':
     (train_data, train_labels), (test_data, test_labels) = load_IMDB_dataset()
@@ -87,11 +111,14 @@ if __name__ =='__main__':
     y_val = train_labels[:10000]
     partial_y_train = train_labels[10000:]
 
+    checkpoint_path = 'data/stc_checkpoint'
+
     train(train_data, train_labels, 
           vocab_size, 16,
           40, 512, 
           (x_val, y_val),
-          test_data, test_labels)
+          test_data, test_labels,
+          checkpoint_path)
     
-    
+    predict(train_data, vocab_size, 16, checkpoint_path)
     
