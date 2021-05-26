@@ -48,7 +48,8 @@ class SimpleTextClass(tf.keras.Model):
         return outputs
 
 
-def train(train_data,
+def train(x_train,
+          y_train,
           vocab_size,
           embed_size,
           epochs,
@@ -63,8 +64,8 @@ def train(train_data,
                   loss='binary_crossentropy',
                   metrics=['accuracy'])
 
-    history = model.fit(partial_x_train,
-                        partial_y_train,
+    history = model.fit(x_train,
+                        y_train,
                         epochs=epochs,
                         batch_size=batch_size,
                         validation_data=validation_data,
@@ -86,7 +87,7 @@ if __name__ =='__main__':
     y_val = train_labels[:10000]
     partial_y_train = train_labels[10000:]
 
-    train((train_data, train_labels), 
+    train(train_data, train_labels, 
           vocab_size, 16,
           40, 512, 
           (x_val, y_val),
