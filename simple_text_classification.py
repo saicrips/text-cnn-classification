@@ -1,7 +1,12 @@
+"""テキストの2値分類
+
+IMDBの２値分類を行う
+(参考: https://www.tensorflow.org/tutorials/keras/text_classification?hl=ja)
+
+"""
+
 import tensorflow as tf
-
 from tensorflow.keras import layers
-
 import numpy as numpy
 
 def load_IMDB_dataset():

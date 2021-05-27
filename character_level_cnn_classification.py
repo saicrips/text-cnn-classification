@@ -1,34 +1,74 @@
+"""character-level cnn classification
+
+文字単位のテキストCNNの実装
+(参考: https://towardsdatascience.com/character-level-cnn-with-keras-50391c3adf33)
+
+"""
+
+import os
+import sys
+
+import re
 import tensorflow as tf
-
 from tensorflow.keras import layers
+import numpy as np
+import csv
 
-import numpy as numpy
+TRAIN_PATH = '../only-my-datasets/ag_news/dataset/train.csv'
+TEST_PATH = '../only-my-datasets/ag_news/dataset/test.csv'
 
-def load_IMDB_dataset():
-    imdb = tf.keras.datasets.imdb
-    return imdb.load_data(num_words=10000)
+def load_news_data():
+    """ag_newsの学習用テスト用データを出力する
 
-def decode_review(text):
-    imdb = tf.keras.datasets.imdb
-    word_index = imdb.get_word_index()
-    word_index = {k : (v+3) for k,v in word_index.items()}
-    word_index["<PAD>"] = 0
-    word_index["<START>"] = 1
-    word_index["<UNK>"] = 2  # unknown
-    word_index["<UNUSED>"] = 3
+    ag_newsの学習用テスト用データの組を出力する
+    ラベルの説明 1 World, 2 Sports, 3 Business, 4 Sci/Tech
 
-    reverse_word_index = dict([(value, key) for (key, value) in word_index.items()])
+    Returns:
+        ([string], [int]), ([string], [int]): (学習用データ, ラベル),  (テスト用データ, ラベル)
+    """
 
-    return ' '.join([reverse_word_index.get(i, '?') for i in text])
+    train_data = []
+    train_label_data = []
+    with open(TRAIN_PATH, 'r', encoding='utf-8') as f:
+        texts = csv.reader(f, delimiter=',', quotechar='"')
+        for row in texts:
+            text = ""
+            for s in row[1:]:
+                    text = text + " " + re.sub("^\s*(.-)\s*$", "%1", s).replace("\\n", "\n")
+            train_data.append(text)
+            train_label_data.append(int(row[0]))
 
-def normalize_text_length(texts, pad_value,maxlen=256):
-    output = []
-    for text in texts:
-        output.append(tf.keras.preprocessing.sequence.pad_sequences(text,
-                                                                value=pad_value,
-                                                                padding='post',
-                                                                maxlen=maxlen))
-    return output
+    test_data = []
+    test_label_data = []
+    with open(TEST_PATH, 'r', encoding='utf-8') as f:
+        texts = csv.reader(f, delimiter=',', quotechar='"')
+        for row in texts:
+            text = ""
+            for s in row[1:]:
+                    text = text + " " + re.sub("^\s*(.-)\s*$", "%1", s).replace("\\n", "\n")
+            test_data.append(text)
+            test_label_data.append(int(row[0]))
+
+
+    return (np.array(train_data), np.array(train_label_data)), (np.array(test_data), np.array(test_label_data))
+
+def character_level_encode(texts, maxlen=1014):
+    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words=None, char_level=True, oov_token='UNK')
+    tokenizer.fit_on_texts(texts)
+
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}"
+    char_dict = {}
+    for i, char in enumerate(alphabet):
+        char_dict[char] = i+1
+
+    tokenizer.word_index = char_dict.copy()
+    tokenizer.word_index[tokenizer.oov_token] = max(char_dict.values()) + 1
+
+    sequences = tokenizer.texts_to_sequences(texts)
+    pad_data = tf.keras.preprocessing.sequence.pad_sequences(sequences)
+
+    return np.array(pad_data, dtype='float32')
+
 
 def text_cnn(filter_size, kernel_size, pool_size):
     """text用cnnモデルの出力
@@ -52,7 +92,7 @@ def text_cnn(filter_size, kernel_size, pool_size):
     model.add(layers.Activation('relu'))
     if pool_size > 0:
         model.add(layers.AveragePooling1D((pool_size)))
-        #model.add(layers.GlobalAveragePooling1D())
+
     return model
 
 class TextCnnClass(tf.keras.Model):
@@ -68,6 +108,7 @@ class TextCnnClass(tf.keras.Model):
         dropout (tf.keras.Layer): ドロップアウト層
         output (tf.keras.Layer): 出力層(2値分類)
     """
+
     def __init__(self, vocab_size, embed_size, conv_layers, fc_layers, drop_rate=0.5):
         """
         Args:
@@ -97,7 +138,7 @@ class TextCnnClass(tf.keras.Model):
             self.fc.append(layers.Dense(fc_layer, activation='relu'))
             self.dropout.append(layers.Dropout(drop_rate))
 
-        self.output_layer = layers.Dense(1, activation='sigmoid')
+        self.output_layer = layers.Dense(4, activation='sigmoid')
     
     def call(self, x, training=None):
         x = self.embedding(x)
@@ -114,6 +155,19 @@ class TextCnnClass(tf.keras.Model):
         return outputs
 
     def model(self, shape):
+        """tf.keras.Modelとして出力
+
+        build()された状態のモデルを返す
+
+        Args:
+            shape([int, ...]): モデルの入力のshape
+
+        Returns:
+            tf.keras.Model: build()されたモデル
+
+        Examples:
+            #summary()やget_weights()が使えるようになる
+        """
         x = tf.keras.Input(shape=shape)
         return tf.keras.Model(inputs=x, outputs=self.call(x))
 
@@ -135,7 +189,7 @@ def train(x_train,
     model.model(shape=x_train[0].shape).summary()
     
     model.compile(optimizer='adam',
-                  loss='binary_crossentropy',
+                  loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
     history = model.fit(x_train,
@@ -166,8 +220,20 @@ def predict(data, vocab_size, embed_size, conv_layers, fc_layers, checkpoint_pat
 
 
 if __name__ =='__main__':
-    (train_data, train_labels), (test_data, test_labels) = load_IMDB_dataset()
-    (train_data, test_data) = normalize_text_length((train_data, test_data), 0, 256)
+    (train_data, train_labels), (test_data, test_labels) = load_news_data()
+
+    maxlen = 1014
+
+    train_data = character_level_encode(train_data, maxlen)
+    test_data = character_level_encode(test_data, maxlen)
+
+    #ラベルが1,2,3,4となっているので, 0,1,2,3にする
+    train_labels = [c-1 for c in train_labels]
+    test_labels = [c-1 for c in test_labels]
+
+    #分類モデルに合わせるためにワンホットベクトルにする
+    train_labels = tf.keras.utils.to_categorical(train_labels)
+    test_labels = tf.keras.utils.to_categorical(test_labels)
 
     vocab_size = 10000
 
@@ -188,8 +254,8 @@ if __name__ =='__main__':
 
     checkpoint_path = 'data/TCC/'
 
-    train(train_data, train_labels, 
-          vocab_size, 69,
+    train(partial_x_train, partial_y_train, 
+          vocab_size+1, 69,
           conv_layers,
           fc_layers,
           20, 512, 
