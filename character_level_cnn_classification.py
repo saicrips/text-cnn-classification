@@ -65,7 +65,7 @@ def character_level_encode(texts, maxlen=1014):
     tokenizer.word_index[tokenizer.oov_token] = max(char_dict.values()) + 1
 
     sequences = tokenizer.texts_to_sequences(texts)
-    pad_data = tf.keras.preprocessing.sequence.pad_sequences(sequences)
+    pad_data = tf.keras.preprocessing.sequence.pad_sequences(sequences, maxlen, padding='post')
 
     return np.array(pad_data, dtype='float32')
 
@@ -109,7 +109,7 @@ class TextCnnClass(tf.keras.Model):
         output (tf.keras.Layer): 出力層(2値分類)
     """
 
-    def __init__(self, vocab_size, embed_size, conv_layers, fc_layers, drop_rate=0.5):
+    def __init__(self, vocab_size, embed_size, num_class, conv_layers, fc_layers, drop_rate=0.5):
         """
         Args:
             vocab_size(int): 文章の語彙数
@@ -138,7 +138,7 @@ class TextCnnClass(tf.keras.Model):
             self.fc.append(layers.Dense(fc_layer, activation='relu'))
             self.dropout.append(layers.Dropout(drop_rate))
 
-        self.output_layer = layers.Dense(4, activation='sigmoid')
+        self.output_layer = layers.Dense(num_class, activation='sigmoid')
     
     def call(self, x, training=None):
         x = self.embedding(x)
@@ -176,20 +176,23 @@ def train(x_train,
           y_train,
           vocab_size,
           embed_size,
+          num_class,
           conv_layers,
           fc_layers,
           epochs,
           batch_size,
+          optimizer,
+          loss,
           validation_data,
           test_data=None,
           test_labels=None,
           checkpoint_path=None):
 
-    model = TextCnnClass(vocab_size, embed_size, conv_layers, fc_layers, 0.5)
+    model = TextCnnClass(vocab_size, embed_size, num_class, conv_layers, fc_layers, 0.5)
     model.model(shape=x_train[0].shape).summary()
     
-    model.compile(optimizer='adam',
-                  loss='categorical_crossentropy',
+    model.compile(optimizer=optimizer,
+                  loss=loss,
                   metrics=['accuracy'])
 
     history = model.fit(x_train,
@@ -204,19 +207,19 @@ def train(x_train,
         save_path = checkpoint.save(checkpoint_path)                        
 
     if test_data is not None and test_labels is not None:
-        results = model.evaluate(test_data, test_labels, verbose=2)
+        results = model.evaluate(test_data, test_labels)
         print(results)
 
 
-def predict(data, vocab_size, embed_size, conv_layers, fc_layers, checkpoint_path):
-    model = TextCnnClass(vocab_size, embed_size, conv_layers, fc_layers, 0.5)
+def predict(data, vocab_size, embed_size, num_class, conv_layers, fc_layers, checkpoint_path):
+    model = TextCnnClass(vocab_size, embed_size, num_class, conv_layers, fc_layers, 0.5)
 
     model.model(shape=data[0].shape).summary()
     checkpoint = tf.train.Checkpoint(model=model)
     save_path = checkpoint.save(checkpoint_path)
     checkpoint.restore(save_path)
 
-    print(model.predict(data).T)
+    print(model.predict(data))
 
 
 if __name__ =='__main__':
@@ -226,6 +229,7 @@ if __name__ =='__main__':
 
     train_data = character_level_encode(train_data, maxlen)
     test_data = character_level_encode(test_data, maxlen)
+    num_class = 4
 
     #ラベルが1,2,3,4となっているので, 0,1,2,3にする
     train_labels = [c-1 for c in train_labels]
@@ -244,25 +248,34 @@ if __name__ =='__main__':
     partial_y_train = train_labels[10000:]
 
     conv_layers = [[256, 7, 3],
-                [256, 7, 3],
-                [256, 3, 0],
-                [256, 3, 0],
-                [256, 3, 0],
-                [256, 3, 3]]
+                   [256, 7, 3],
+                   [256, 3, 0],
+                   [256, 3, 0],
+                   [256, 3, 0],
+                   [256, 3, 3]]
 
     fc_layers = [1024, 1024]
 
     checkpoint_path = 'data/TCC/'
 
+    epochs = 20
+    batch_size = 512
+    loss = 'categorical_crossentropy'
+    # loss='binary_crossentropy'
+    optimizer = 'adam'
+
     train(partial_x_train, partial_y_train, 
           vocab_size+1, 69,
+          num_class,
           conv_layers,
           fc_layers,
-          20, 512, 
+          epochs, batch_size,
+          optimizer,
+          loss,
           (x_val, y_val),
           test_data, test_labels,
           checkpoint_path)
     
-    predict(train_data, vocab_size, 69, conv_layers, fc_layers, checkpoint_path)
+    predict(train_data, vocab_size, 69, num_class, conv_layers, fc_layers, checkpoint_path)
     
     
